@@ -17,17 +17,13 @@
 //! # Blockchain DB API for a node
 //!
 
+use std::io;
 use std::sync::{Arc, RwLock};
 
-use bitcoin::BitcoinHash;
-use bitcoin::blockdata::block::BlockHeader;
-
-use bitcoin_hashes::sha256d;
+use bitcoin::{BlockHash, BlockHeader};
 
 use crate::error::Error;
 use crate::headercache::CachedHeader;
-
-use serde_derive::{Serialize, Deserialize};
 
 /// Shared handle to a database storing the block chain
 /// protected by an RwLock
@@ -43,10 +39,10 @@ pub trait ChainDB: Send + Sync {
     fn batch(&mut self) -> Result<(), Error>;
 
     /// Store a header.
-    fn add_header(&mut self, header: &BlockHeader) -> Result<Option<(StoredHeader, Option<Vec<sha256d::Hash>>, Option<Vec<sha256d::Hash>>)>, Error>;
+    fn add_header(&mut self, header: &BlockHeader) -> Result<Option<(StoredHeader, Option<Vec<BlockHash>>, Option<Vec<BlockHash>>)>, Error>;
 
     /// Return position of hash on trunk if hash is on trunk.
-    fn pos_on_trunk(&self, hash: &sha256d::Hash) -> Option<u32>;
+    fn pos_on_trunk(&self, hash: BlockHash) -> Option<u32>;
 
     /// Iterate trunk [from .. tip].
     fn iter_trunk<'a>(&'a self, from: u32) -> Box<dyn Iterator<Item=&'a CachedHeader> + 'a>;
@@ -58,26 +54,26 @@ pub trait ChainDB: Send + Sync {
     fn header_tip(&self) -> Option<CachedHeader>;
 
     /// Fetch a header by its id from cache.
-    fn get_header(&self, id: &sha256d::Hash) -> Option<CachedHeader>;
+    fn get_header(&self, id: BlockHash) -> Option<CachedHeader>;
 
     /// Fetch a header by its id from cache.
     fn get_header_for_height(&self, height: u32) -> Option<CachedHeader>;
 
     /// Locator for getheaders message.
-    fn header_locators(&self) -> Vec<sha256d::Hash>;
+    fn header_locators(&self) -> Vec<BlockHash>;
 
     /// Store the header id with most work.
-    fn store_header_tip(&mut self, tip: &sha256d::Hash) -> Result<(), Error>;
+    fn store_header_tip(&mut self, tip: BlockHash) -> Result<(), Error>;
 
     /// Find header id with most work.
-    fn fetch_header_tip(&self) -> Result<Option<sha256d::Hash>, Error>;
+    fn fetch_header_tip(&self) -> Result<Option<BlockHash>, Error>;
 
     /// Read header from the DB.
-    fn fetch_header(&self, id: &sha256d::Hash) -> Result<Option<StoredHeader>, Error>;
+    fn fetch_header(&self, id: BlockHash) -> Result<Option<StoredHeader>, Error>;
 }
 
 /// A header enriched with information about its position on the blockchain
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone)]
 pub struct StoredHeader {
     /// header
     pub header: BlockHeader,
@@ -87,11 +83,35 @@ pub struct StoredHeader {
     pub log2work: f64,
 }
 
-// need to implement if put_hash_keyed and get_hash_keyed should be used
-impl BitcoinHash for StoredHeader {
-    fn bitcoin_hash(&self) -> sha256d::Hash {
-        self.header.bitcoin_hash()
-    }
+impl StoredHeader {
+	/// Get the header's block hash.
+	pub fn block_hash(&self) -> BlockHash {
+		self.header.block_hash()
+	}
 }
 
+#[cfg(feature = "hammersbald")]
+impl hammersbald::BitcoinObject<BlockHash> for StoredHeader {
+    fn encode<W: io::Write>(&self, mut w: W) -> Result<usize, hammersbald::Error> {
+		Ok(
+			bitcoin::consensus::Encodable::consensus_encode(&self.header, &mut w)? +
+			bitcoin::consensus::Encodable::consensus_encode(&self.height, &mut w)? +
+			bitcoin::consensus::Encodable::consensus_encode(&self.log2work.to_bits(), &mut w)?
+		)
+	}
 
+    fn decode<D: io::Read>(mut d: D) -> Result<Self, hammersbald::Error> {
+		Ok(StoredHeader {
+			header: bitcoin::consensus::Decodable::consensus_decode(&mut d)?,
+			height: bitcoin::consensus::Decodable::consensus_decode(&mut d)?,
+			log2work: {
+				let bits = bitcoin::consensus::Decodable::consensus_decode(&mut d)?;
+				f64::from_bits(bits)
+			},
+		})
+	}
+
+    fn hash(&self) -> BlockHash {
+        self.block_hash()
+    }
+}

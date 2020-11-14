@@ -17,33 +17,36 @@
 //! # Cache of headers and the chain with most work
 //!
 
-use bitcoin::{
-    BitcoinHash,
-    blockdata::block::BlockHeader,
-    network::constants::Network,
-    util::{
-        uint::Uint256,
-    },
-};
-use bitcoin_hashes::sha256d::Hash as Sha256dHash;
-use bitcoin_hashes::Hash;
+use std::io;
+use std::collections::HashMap;
+
+use bitcoin::{BlockHash, BlockHeader, Network};
+use bitcoin::hashes::Hash;
+use bitcoin::util::uint::Uint256;
+
+use log::trace;
+
 use crate::chaindb::StoredHeader;
 use crate::error::Error;
-use log::trace;
-use std::{
-    collections::HashMap
-};
 
 #[derive(Clone)]
 pub struct CachedHeader {
-    pub stored : StoredHeader,
-    id: Sha256dHash
+    pub id: BlockHash,
+    pub stored: StoredHeader,
 }
 
 impl CachedHeader {
-    pub fn new (id: &Sha256dHash, header: StoredHeader) -> CachedHeader {
-        CachedHeader{ stored: header, id: id.clone() }
+    pub fn new (id: BlockHash, header: StoredHeader) -> CachedHeader {
+        CachedHeader {
+			id: id,
+			stored: header,
+		}
     }
+
+	/// Get the header's block hash.
+	pub fn block_hash(&self) -> BlockHash {
+		self.id
+	}
 
     /// Computes the target [0, T] that a blockhash must land in to be valid
     pub fn target(&self) -> Uint256 {
@@ -78,7 +81,7 @@ impl CachedHeader {
         if target != required_target {
             return Err(Error::SpvBadTarget);
         }
-        let data: [u8; 32] = self.bitcoin_hash().into_inner();
+        let data: [u8; 32] = self.block_hash().into_inner();
         let mut ret = [0u64; 4];
         LittleEndian::read_u64_into(&data, &mut ret);
         let hash = &Uint256(ret);
@@ -97,8 +100,23 @@ impl CachedHeader {
     }
 }
 
-impl BitcoinHash for CachedHeader {
-    fn bitcoin_hash(&self) -> Sha256dHash {
+#[cfg(feature = "hammersbald")]
+impl hammersbald::BitcoinObject<BlockHash> for CachedHeader {
+    fn encode<W: io::Write>(&self, mut w: W) -> Result<usize, hammersbald::Error> {
+		Ok(
+			bitcoin::consensus::Encodable::consensus_encode(&self.id, &mut w)? +
+			hammersbald::BitcoinObject::encode(&self.stored, &mut w)?
+		)
+	}
+
+    fn decode<D: io::Read>(mut d: D) -> Result<Self, hammersbald::Error> {
+		Ok(CachedHeader {
+			id: bitcoin::consensus::Decodable::consensus_decode(&mut d)?,
+			stored:	hammersbald::BitcoinObject::decode(&mut d)?
+		})
+	}
+
+    fn hash(&self) -> BlockHash {
         self.id
     }
 }
@@ -107,9 +125,9 @@ pub struct HeaderCache {
     // network
     network: Network,
     // all known headers
-    headers: HashMap<Sha256dHash, CachedHeader>,
+    headers: HashMap<BlockHash, CachedHeader>,
     // header chain with most work
-    trunk: Vec<Sha256dHash>,
+    trunk: Vec<BlockHash>,
 }
 
 const EXPECTED_CHAIN_LENGTH: usize = 600000;
@@ -119,7 +137,7 @@ impl HeaderCache {
         HeaderCache { network, headers: HashMap::with_capacity(EXPECTED_CHAIN_LENGTH), trunk: Vec::with_capacity(EXPECTED_CHAIN_LENGTH) }
     }
 
-    pub fn add_header_unchecked(&mut self, id: &Sha256dHash, stored: &StoredHeader) {
+    pub fn add_header_unchecked(&mut self, id: BlockHash, stored: &StoredHeader) {
         let cached = CachedHeader::new(id, stored.clone());
         self.headers.insert(id.clone(), cached);
         self.trunk.push(id.clone());
@@ -134,12 +152,12 @@ impl HeaderCache {
     }
 
     /// add a Bitcoin header
-    pub fn add_header(&mut self, header: &BlockHeader) -> Result<Option<(CachedHeader, Option<Vec<Sha256dHash>>, Option<Vec<Sha256dHash>>)>, Error> {
-        if self.headers.get(&header.bitcoin_hash()).is_some() {
+    pub fn add_header(&mut self, header: &BlockHeader) -> Result<Option<(CachedHeader, Option<Vec<BlockHash>>, Option<Vec<BlockHash>>)>, Error> {
+        if self.headers.get(&header.block_hash()).is_some() {
             // ignore already known header
             return Ok(None);
         }
-        if header.prev_blockhash != Sha256dHash::default() {
+        if header.prev_blockhash != BlockHash::default() {
             // regular update
             let previous;
             if let Some(prev) = self.headers.get(&header.prev_blockhash) {
@@ -153,8 +171,8 @@ impl HeaderCache {
             return Ok(Some(self.add_header_to_tree(&previous, header)?));
         } else {
             // insert genesis
-            let new_tip = header.bitcoin_hash();
-            let stored = CachedHeader::new(&new_tip, StoredHeader {
+            let new_tip = header.block_hash();
+            let stored = CachedHeader::new(new_tip, StoredHeader {
                 header: header.clone(),
                 height: 0,
                 log2work: Self::log2(header.work())
@@ -186,7 +204,7 @@ impl HeaderCache {
     }
 
     // add header to tree, return stored, optional list of unwinds, optional list of extensions
-    fn add_header_to_tree(&mut self, prev: &CachedHeader, next: &BlockHeader) -> Result<(CachedHeader, Option<Vec<Sha256dHash>>, Option<Vec<Sha256dHash>>), Error> {
+    fn add_header_to_tree(&mut self, prev: &CachedHeader, next: &BlockHeader) -> Result<(CachedHeader, Option<Vec<BlockHash>>, Option<Vec<BlockHash>>), Error> {
         const DIFFCHANGE_INTERVAL: u32 = 2016;
         const DIFFCHANGE_TIMESPAN: u32 = 14 * 24 * 3600;
         const TARGET_BLOCK_SPACING: u32 = 600;
@@ -238,7 +256,7 @@ impl HeaderCache {
                 let mut scan = prev.clone();
                 let mut height = prev.stored.height;
                 let max_target = Self::max_target();
-                while height % DIFFCHANGE_INTERVAL != 0 && scan.stored.header.prev_blockhash != Sha256dHash::default() && scan.stored.header.target() == max_target {
+                while height % DIFFCHANGE_INTERVAL != 0 && scan.stored.header.prev_blockhash != BlockHash::default() && scan.stored.header.target() == max_target {
                     if let Some(header) = self.headers.get(&scan.stored.header.prev_blockhash) {
                         scan = header.clone();
                         height = header.stored.height;
@@ -253,7 +271,7 @@ impl HeaderCache {
                 prev.stored.header.target()
             };
 
-        let cached = CachedHeader::new(&next.bitcoin_hash(), StoredHeader {
+        let cached = CachedHeader::new(next.block_hash(), StoredHeader {
             header: next.clone(),
             height: prev.stored.height + 1,
             log2work: Self::log2(next.work() + Self::exp2(prev.stored.log2work))
@@ -264,7 +282,7 @@ impl HeaderCache {
             return Err(Error::SpvBadProofOfWork);
         }
 
-        let next_hash = cached.bitcoin_hash();
+        let next_hash = cached.block_hash();
 
         // store header in cache
         self.headers.insert(next_hash.clone(), cached.clone());
@@ -275,7 +293,7 @@ impl HeaderCache {
                 // compute path to new tip
                 let mut forks_at = next.prev_blockhash;
                 let mut path_to_new_tip = Vec::new();
-                while self.pos_on_trunk(&forks_at).is_none() {
+                while self.pos_on_trunk(forks_at).is_none() {
                     if let Some(h) = self.headers.get(&forks_at) {
                         forks_at = h.stored.header.prev_blockhash;
                         path_to_new_tip.push(forks_at);
@@ -317,19 +335,19 @@ impl HeaderCache {
     }
 
     /// position on trunk (chain with most work from genesis to tip)
-    pub fn pos_on_trunk(&self, hash: &Sha256dHash) -> Option<u32> {
-        self.trunk.iter().rev().position(|e| { *e == *hash }).map(|p| (self.trunk.len() - p - 1) as u32)
+    pub fn pos_on_trunk(&self, hash: BlockHash) -> Option<u32> {
+        self.trunk.iter().rev().position(|e| { *e == hash }).map(|p| (self.trunk.len() - p - 1) as u32)
     }
 
     /// retrieve the id of the block/header with most work
     pub fn tip(&self) -> Option<CachedHeader> {
         if let Some(id) = self.tip_hash() {
-            return self.get_header(&id);
+            return self.get_header(id);
         }
         None
     }
 
-    pub fn tip_hash(&self) -> Option<Sha256dHash> {
+    pub fn tip_hash(&self) -> Option<BlockHash> {
         if let Some(tip) = self.trunk.last() {
             return Some(*tip);
         }
@@ -355,8 +373,8 @@ impl HeaderCache {
     }
 
     /// Fetch a header by its id from cache
-    pub fn get_header(&self, id: &Sha256dHash) -> Option<CachedHeader> {
-        if let Some(header) = self.headers.get(id) {
+    pub fn get_header(&self, id: BlockHash) -> Option<CachedHeader> {
+        if let Some(header) = self.headers.get(&id) {
             return Some(header.clone());
         }
         None
@@ -386,7 +404,7 @@ impl HeaderCache {
     }
 
     // locator for getheaders message
-    pub fn locator_hashes(&self) -> Vec<Sha256dHash> {
+    pub fn locator_hashes(&self) -> Vec<BlockHash> {
         let mut locator = vec!();
         let mut skip = 1;
         let mut count = 0;

@@ -186,12 +186,12 @@ impl<Message: Send + Sync + Clone> PeerMessageSender<Message> {
 }
 
 pub trait Command {
-    fn command(&self)->String;
+    fn command(&self) -> String;
 }
 
 impl Command for RawNetworkMessage {
     fn command(&self) -> String {
-        self.command()
+        self.command().to_string()
     }
 }
 
@@ -230,7 +230,7 @@ impl Version for NetworkMessage {
             NetworkMessage::Version(v) => {
                 Some(VersionCarrier {
                     version: v.version,
-                    services: v.services,
+                    services: v.services.into(),
                     timestamp: v.timestamp as u64,
                     receiver: v.receiver.clone(),
                     sender: v.sender.clone(),
@@ -310,11 +310,11 @@ impl P2PConfig<NetworkMessage, RawNetworkMessage> for BitcoinP2PConfig {
         // build message
         NetworkMessage::Version(VersionMessage {
             version: min(max_protocol_version, self.max_protocol_version),
-            services,
+            services: services.into(),
             timestamp,
-            receiver: Address::new(remote, 1),
+            receiver: Address::new(remote, 1.into()),
             // sender is only dummy
-            sender: Address::new(remote, 1),
+            sender: Address::new(remote, 1.into()),
             nonce: self.nonce,
             user_agent: self.user_agent.clone(),
             start_height: self.height.load(Ordering::Relaxed) as i32,

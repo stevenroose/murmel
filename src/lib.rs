@@ -26,7 +26,7 @@
 #![deny(unused_must_use)]
 #![forbid(unsafe_code)]
 
-#[cfg(feature="lightning")] mod lightning;
+#[cfg(feature = "lightning")] mod lightning;
 mod headercache;
 
 pub mod ping;

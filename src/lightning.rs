@@ -19,19 +19,10 @@
 //! This implements an interface to higher level applications
 //!
 
-use bitcoin::{
-    blockdata::{
-        block::{Block, BlockHeader},
-        transaction::Transaction,
-        script::Script,
-    },
-    network::{
-        message::NetworkMessage,
-        constants::Network
-    }
-};
+use std::sync::{Arc, Weak, Mutex};
 
-use bitcoin_hashes::sha256d::Hash as Sha256dHash;
+use bitcoin::{Block, BlockHash, Blockeader, Network,Script, Transaction, Txid};
+use bitcoin::network::message::NetworkMessage;
 
 use lightning::{
     chain::chaininterface::{ChainListener, ChainWatchInterface, ChainWatchInterfaceUtil,ChainError},
@@ -41,8 +32,6 @@ use lightning::{
 use downstream::Downstream;
 
 use p2p::P2PControlSender;
-
-use std::sync::{Arc, Weak, Mutex};
 
 struct LightningLogger{
     level: Level
@@ -97,12 +86,12 @@ impl LightningConnector {
 
 impl ChainWatchInterface for LightningConnector {
 
-    fn install_watch_tx(&self, _txid: &Sha256dHash, _script_pub_key: &Script) {
+    fn install_watch_tx(&self, _txid: Txid, _script_pub_key: &Script) {
         unimplemented!()
     }
 
     /// install a listener to be called with transactions that spend the outpoint
-    fn install_watch_outpoint(&self, outpoint: (Sha256dHash, u32), out_script: &Script) {
+    fn install_watch_outpoint(&self, outpoint: OutPoint, out_script: &Script) {
         self.util.install_watch_outpoint(outpoint, out_script)
     }
 
@@ -116,7 +105,7 @@ impl ChainWatchInterface for LightningConnector {
         self.util.register_listener(listener)
     }
 
-    fn get_chain_utxo(&self, _genesis_hash: Sha256dHash, _unspent_tx_output_identifier: u64) -> Result<(Script, u64), ChainError> {
+    fn get_chain_utxo(&self, _genesis_hash: BlockHash, _unspent_tx_output_identifier: u64) -> Result<(Script, u64), ChainError> {
         Err(ChainError::NotSupported)
     }
 }
