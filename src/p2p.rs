@@ -61,12 +61,6 @@ const EVENT_BUFFER_SIZE:usize = 1024;
 const CONNECT_TIMEOUT_SECONDS: u64 = 5;
 const BAN :u32 = 100;
 
-/// do we serve blocks?
-pub const SERVICE_BLOCKS:u64 = 1;
-/// requires segwit support
-pub const SERVICE_WITNESS:u64 =  1 << 3;
-/// require filters
-pub const SERVICE_FILTERS:u64 = 1 << 6;
 /// A peer's Id
 #[derive(Hash, Eq, PartialEq, Copy, Clone)]
 pub struct PeerId {
@@ -872,7 +866,7 @@ impl<Message: Version + Send + Sync + Clone,
                 else {
                     if handshake {
                         info!("handshake peer={}", pid);
-                        self.connected (pid, address);
+                        self.connected(pid, address);
                         if let Some(w) = self.waker.lock().unwrap().remove(&pid) {
                             trace!("waking for handshake");
                             w.wake();

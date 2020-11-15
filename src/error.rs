@@ -19,13 +19,11 @@
 //! All modules of this library use this error class to indicate problems.
 //!
 
+use std::{fmt, io};
+
 use bitcoin::consensus::encode;
-use bitcoin::util;
-use bitcoin::util::bip158;
+use bitcoin::util::{self, bip158};
 use hammersbald;
-use std::convert;
-use std::fmt;
-use std::io;
 
 /// An error class to offer a unified error interface upstream
 pub enum Error {
@@ -56,7 +54,9 @@ pub enum Error {
     /// Handshake failure
     Handshake,
     /// lost connection
-    Lost(String)
+    Lost(String),
+    /// A p2p error
+    P2P(bitcoin_p2p::Error),
 }
 
 impl std::error::Error for Error {
@@ -79,7 +79,8 @@ impl std::error::Error for Error {
             Error::Hammersbald(ref err) => Some(err),
             Error::Serialize(ref err) => Some(err),
             Error::Handshake => None,
-            Error::Lost(_) => None
+            Error::Lost(_) => None,
+            Error::P2P(ref e) => Some(e),
         }
     }
 }
@@ -103,6 +104,7 @@ impl fmt::Display for Error {
             Error::Util(ref err) => write!(f, "Util error: {}", err),
             Error::Hammersbald(ref err) => write!(f, "Hammersbald error: {}", err),
             Error::Serialize(ref err) => write!(f, "Serialize error: {}", err),
+            Error::P2P(ref e) => write!(f, "P2P error: {}", e),
         }
     }
 }
@@ -113,7 +115,7 @@ impl fmt::Debug for Error {
     }
 }
 
-impl convert::From<Error> for io::Error {
+impl From<Error> for io::Error {
     fn from(err: Error) -> io::Error {
         match err {
             Error::IO(e) => e,
@@ -124,42 +126,48 @@ impl convert::From<Error> for io::Error {
     }
 }
 
-impl convert::From<io::Error> for Error {
+impl From<io::Error> for Error {
     fn from(err: io::Error) -> Error {
         Error::IO(err)
     }
 }
 
 
-impl convert::From<util::Error> for Error {
+impl From<util::Error> for Error {
     fn from(err: util::Error) -> Error {
         Error::Util(err)
     }
 }
 
-impl convert::From<hammersbald::Error> for Error {
+impl From<hammersbald::Error> for Error {
     fn from(err: hammersbald::Error) -> Error {
         Error::Hammersbald(err)
     }
 }
 
-impl convert::From<encode::Error> for Error {
+impl From<encode::Error> for Error {
     fn from(err: encode::Error) -> Error {
         Error::Serialize(err)
     }
 }
 
-impl convert::From<Box<dyn std::error::Error>> for Error {
+impl From<Box<dyn std::error::Error>> for Error {
     fn from(err: Box<dyn std::error::Error>) -> Self {
         Error::Downstream(err.to_string())
     }
 }
 
-impl convert::From<bip158::Error> for Error {
+impl From<bip158::Error> for Error {
     fn from(err: bip158::Error) -> Self {
         match err {
             bip158::Error::Io(io) => Error::IO(io),
             bip158::Error::UtxoMissing(_) => Error::UnknownUTXO
         }
+    }
+}
+
+impl From<bitcoin_p2p::Error> for Error {
+    fn from(e: bitcoin_p2p::Error) -> Error {
+        Error::P2P(e)
     }
 }

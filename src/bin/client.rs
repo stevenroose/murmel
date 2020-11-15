@@ -25,18 +25,16 @@ use murmel::{
     constructor::Constructor
 };
 
-use std::{
-    env::args,
-    net::{Ipv4Addr, SocketAddr, SocketAddrV4},
-    path::Path,
-    str::FromStr,
-    time::SystemTime
-};
+use std::{env, thread};
+use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
+use std::path::Path;
+use std::str::FromStr;
+use std::time::{Duration, SystemTime};
 
 pub fn main() {
     if find_opt("help") {
         println!("Murmel Client");
-        println!("{} [--help] [--log trace|debug|info|warn|error] [--connections n] [--peer ip_address:port] [--db database_file] [--network main|test]", args().next().unwrap());
+        println!("{} [--help] [--log trace|debug|info|warn|error] [--connections n] [--peer ip_address:port] [--db database_file] [--network main|test]", env::args().next().unwrap());
         println!("--log level: level is one of trace|debug|info|warn|error");
         println!("--connections n: maintain at least n connections");
         println!("--peer ip_address: connect to the given peer at start. You may use more than one --peer option.");
@@ -104,7 +102,9 @@ pub fn main() {
             Constructor::open_db(Some(&Path::new("client.db")), network, birth).unwrap()
         };
     let mut spv = Constructor::new(network, listen, chaindb).unwrap();
-    spv.run(network, peers, connections).expect("can not start node");
+    spv.run(peers, connections).expect("can not start node");
+
+    thread::sleep(Duration::from_secs(60 * 60));
 }
 
 fn get_peers() -> Vec<SocketAddr> {
@@ -117,13 +117,13 @@ fn get_listeners() -> Vec<SocketAddr> {
 
 // Returns key-value zipped iterator.
 fn zipped_args() -> impl Iterator<Item = (String, String)> {
-    let key_args = args().filter(|arg| arg.starts_with("--")).map(|mut arg| arg.split_off(2));
-    let val_args = args().skip(1).filter(|arg| !arg.starts_with("--"));
+    let key_args = env::args().filter(|arg| arg.starts_with("--")).map(|mut arg| arg.split_off(2));
+    let val_args = env::args().skip(1).filter(|arg| !arg.starts_with("--"));
     key_args.zip(val_args)
 }
 
 fn find_opt(key: &str) -> bool {
-    let mut key_args = args().filter(|arg| arg.starts_with("--")).map(|mut arg| arg.split_off(2));
+    let mut key_args = env::args().filter(|arg| arg.starts_with("--")).map(|mut arg| arg.split_off(2));
     key_args.find(|ref k| k.as_str() == key).is_some()
 }
 

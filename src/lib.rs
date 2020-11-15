@@ -26,16 +26,18 @@
 #![deny(unused_must_use)]
 #![forbid(unsafe_code)]
 
+#[macro_use]
+extern crate log;
+
 #[cfg(feature = "lightning")] mod lightning;
 mod headercache;
 
-pub mod ping;
 pub mod dns;
 pub mod timeout;
 pub mod headerdownload;
 pub mod downstream;
 pub mod dispatcher;
-pub mod p2p;
+//pub mod p2p;
 pub mod error;
 pub mod chaindb;
 #[cfg(feature = "default")] pub mod hammersbald;
