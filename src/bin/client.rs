@@ -21,9 +21,7 @@ extern crate simple_logger;
 
 use bitcoin::network::constants::Network;
 use log::Level;
-use murmel::{
-    constructor::Constructor
-};
+use murmel::Murmel;
 
 use std::{env, thread};
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
@@ -97,11 +95,11 @@ pub fn main() {
 
     let chaindb =
         if let Some(path) = find_arg("db") {
-            Constructor::open_db(Some(&Path::new(path.as_str())), network,  birth).unwrap()
+            Murmel::open_db(Some(&Path::new(path.as_str())), network,  birth).unwrap()
         } else {
-            Constructor::open_db(Some(&Path::new("client.db")), network, birth).unwrap()
+            Murmel::open_db(Some(&Path::new("client.db")), network, birth).unwrap()
         };
-    let mut spv = Constructor::new(network, listen, chaindb).unwrap();
+    let mut spv = Murmel::new(network, listen, chaindb).unwrap();
     spv.run(peers, connections).expect("can not start node");
 
     thread::sleep(Duration::from_secs(60 * 60));
